@@ -4,6 +4,13 @@ This directory holds the code that takes events produced by this simulation and 
 `ssl_hep_np` (eicweb.phy.anl.gov/gm-foundation/ssl_hep_np), the self-supervised point-cloud pipeline
 written for the AI-ready data format of arXiv:2606.07667. Nothing elsewhere in this repository is changed.
 
+| file | role |
+|---|---|
+| `toy_to_npz.py` | converter: toy parquet -> the paper's npz schema |
+| `npz_dataset.py` | loader for that schema, drops into `src/ssl_hep_np/` |
+| `test_npz_dataset.py` | its unit tests, drops into `tests/` |
+| `ssl_hep_np_dataset.patch` | the one small change the loader needs in `src/ssl_hep_np/dataset.py` |
+
 ## What the two sides look like
 
 **Our side: the toy parquet.** The event builder of this repository writes events which we convert to
@@ -30,9 +37,9 @@ The loader in `ssl_hep_np` reads `measurements`, takes four columns [amplitude, 
 event, and trains the encoder contrastively. Truth arrays are never used for training; we use them only to probe
 what the trained encoder knows.
 
-## Route B: convert to the paper's format, then load it with a generic loader (recommended)
+## Converting to the paper's format
 
-### `toy_to_npz.py`: parquet -> npz
+### `toy_to_npz.py`
 
 ```
 python toy_to_npz.py --in-dir <parquet dir> --out-dir <npz dir> --set-name pufree --naming bic
@@ -61,7 +68,9 @@ written under a `.partial` name, re-read, and checked against an independent sec
 before it is renamed; the script exits non-zero on any failure. It also writes `metadata.md`, a field-by-field
 description in the style of the paper's Appendix A, and `conversion_summary.json`.
 
-### `npz_dataset.py`: the loader (copy to `src/ssl_hep_np/npz_dataset.py`)
+## Loading it in ssl_hep_np
+
+### `npz_dataset.py` (copy to `src/ssl_hep_np/npz_dataset.py`)
 
 Reads any file in the schema, including the ePIC BIC files unchanged. Field names may be the BIC names or the
 paper's; both are read as the same field. The main entry points:
@@ -82,26 +91,14 @@ the truth arrays for evaluation only.
 `test_npz_dataset.py` (copy to `tests/`) covers the alias handling, the sample merging, the normalisation and
 the view pairs.
 
-### `ssl_hep_np_dataset_route_B.patch`
+### `ssl_hep_np_dataset.patch`
 
 The one change `npz_dataset.py` needs in the repository's `dataset.py`: `normalize_hits()` takes the
 normalisation constants as arguments instead of the ColliderML constants hard-coded in the file, so a different
-detector passes its own. Apply with `git apply ssl_hep_np_dataset_route_B.patch` in the ssl_hep_np clone.
-
-## Route A: read the parquet directly
-
-`toy_dataset.py` (copy to `src/ssl_hep_np/toy_dataset.py`) skips the conversion: it reads the toy parquet into
-per-event arrays and serves the same view pairs. It also offers extra per-hit inputs (`layer`, `area`) through
-`feature_set="C1"`. `ssl_hep_np_dataset_route_A.patch` is the matching `dataset.py` change (the same
-parameterised `normalize_hits`, plus `compute_norm_constants` to derive the energy normalisation from the
-training split).
-
-Both routes were run on the same 5,000 events and give bit-identical [E, x, y, z] tensors and the same
-training curves and probe scores. Route B is the one to keep: it makes the toy a second detector in the
-collaboration's format, and the loader is the same code that reads their files.
+detector passes its own. Apply with `git apply ssl_hep_np_dataset.patch` in the ssl_hep_np clone.
 
 ## Normalisation constants
 
 The repository's constants are for ColliderML. For the toy we compute them on the training split:
 mean and standard deviation of log10(E [GeV]) over all hits (about -1.50 and 1.00), with the position scale
-kept at 1000 mm. Both routes expose a function for this (`compute_norm_constants`).
+kept at 1000 mm, and pass them through the `norm` argument above.
