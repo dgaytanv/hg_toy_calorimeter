@@ -1,0 +1,61 @@
+diff --git a/src/ssl_hep_np/dataset.py b/src/ssl_hep_np/dataset.py
+index e0dc9b8..ebffe27 100644
+--- a/src/ssl_hep_np/dataset.py
++++ b/src/ssl_hep_np/dataset.py
+@@ -16,10 +16,10 @@ class GaussianNoise:
+         self.sigma_e = sigma_e
+ 
+     def __call__(self, pc):
+-        # pc: (N, 4) with columns [E, x, y, z]
++        # pc: (N, F) with columns [E, x, y, z, extras...]; extra columns are left untouched
+         noise_e = pc[:, 0] * torch.randn(pc.size(0)) * self.sigma_e
+         pc[:, 0] = pc[:, 0] + noise_e
+-        pc[:, 1:] = pc[:, 1:] + torch.randn_like(pc[:, 1:]) * self.sigma_pos
++        pc[:, 1:4] = pc[:, 1:4] + torch.randn_like(pc[:, 1:4]) * self.sigma_pos
+         return pc
+ 
+ 
+@@ -67,20 +67,39 @@ class Compose:
+ # ── Normalization ──────────────────────────────────────────────────────────
+ 
+ ### fixed constants, so every dataset (channel, pileup) gets the same mapping
++### (ColliderML defaults; another detector passes its own, see compute_norm_constants)
+ POS_SCALE = 1000.0       # mm; one shared scale for x, y, z keeps the geometry intact
+ LOG_E_MEAN = -3.3915     # mean of log10(E [GeV]) over hits in ttbar_pu0_calo_hits events 0-699
+ LOG_E_STD = 0.4410       # std of log10(E [GeV]) over the same hits
+ E_FLOOR = 1e-6           # GeV; clip before log10
+ 
+ 
+-def normalize_hits(pc):
+-    """Map (N, 4) [E, x, y, z] to [standardized log10(E), [x, y, z] / POS_SCALE]."""
++def normalize_hits(pc, log_e_mean=LOG_E_MEAN, log_e_std=LOG_E_STD, pos_scale=POS_SCALE):
++    """Map (N, F) [E, x, y, z, extras...] to [standardized log10(E), [x, y, z] / pos_scale, extras...].
++
++    Extra columns (F > 4) pass through unchanged, so they must already be O(1).
++    """
+     out = torch.empty_like(pc)
+-    out[:, 0] = (torch.log10(pc[:, 0].clamp(min=E_FLOOR)) - LOG_E_MEAN) / LOG_E_STD
+-    out[:, 1:] = pc[:, 1:] / POS_SCALE
++    out[:, 0] = (torch.log10(pc[:, 0].clamp(min=E_FLOOR)) - log_e_mean) / log_e_std
++    out[:, 1:4] = pc[:, 1:4] / pos_scale
++    out[:, 4:] = pc[:, 4:]
+     return out
+ 
+ 
++def compute_norm_constants(energies, pos_scale=POS_SCALE):
++    """normalize_hits() constants of a training split: mean and std of log10(E [GeV]) over all its hits.
++
++    Args:
++        energies: iterable of hit-energy arrays (GeV), e.g. one per event or per file; clipped at E_FLOOR.
++    """
++    import numpy as np
++    log_e = [np.log10(np.clip(np.asarray(e, dtype=np.float64), E_FLOOR, None)) for e in energies]
++    n = sum(len(v) for v in log_e)
++    mean = sum(v.sum() for v in log_e) / n
++    std = np.sqrt(sum(((v - mean) ** 2).sum() for v in log_e) / n)
++    return {"log_e_mean": float(mean), "log_e_std": float(std), "pos_scale": float(pos_scale)}
++
++
+ # ── Dataset ────────────────────────────────────────────────────────────────
+ 
+ 
