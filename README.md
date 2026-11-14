@@ -4,6 +4,11 @@ Not ready yet. Use with caution.
 # A High Granularity Toy Calorimeter
 The source code for a toy calorimeter to study particle reconstruction performance.
 
+This fork of https://github.com/shahrukhqasim/hg_toy_calorimeter adds:
+- hit times for every rec-hit, built the way CMSSW builds the HGCAL rec-hit time: section "Hit time" below;
+- `ssl_interface/`: conversion of the toy events to the npz schema of `ssl_hep_np`, with its loader:
+  `ssl_interface/README.md`.
+
 This calorimeter was also employed in the following paper:
 https://link.springer.com/article/10.1140/epjc/s10052-022-10665-7
 
@@ -99,9 +104,9 @@ python3 create_dataset.py example_datasets_config.ini test_dataset_cern
 Here, first the HGCAL environment must have been sourced, to be able to
 export data in `.djctd` format.
 
-## Hit time (this fork, branch `hit-time`)
+## Hit time (this fork)
 
-This branch gives every rec-hit a time, built the way CMSSW builds the HGCAL rec-hit time. Upstream code changes only
+This fork gives every rec-hit a time, built the way CMSSW builds the HGCAL rec-hit time. Upstream code changes only
 in the generator (four files); the event builder runs upstream's `create_dataset.py` through runtime patches.
 
 ### Generator (`src/`, `include/`)
@@ -114,7 +119,7 @@ deposits summed per (particle, sensor, 1 ps time slice), as CMSSW's HGCAL sensit
 - `step_count_raw`: the number of Geant4 steps before the summing.
 
 A particle started away from the origin (the `singlepart_face` gun) starts at its time of flight from the origin, so
-the times of every simulation count from the collision. Rebuild after checking out this branch (see "Install /
+the times of every simulation count from the collision. Rebuild after checking out this fork (see "Install /
 Compile"); `run_simulations.py` is unchanged.
 
 ### Events (`hit_time/`)
