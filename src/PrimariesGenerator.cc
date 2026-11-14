@@ -19,6 +19,8 @@
 #include <G4INCLRandomSeedVector.hh>
 #include <G4INCLRanecu.hh>
 #include<ctime>
+#include <cmath>
+#include <algorithm>
 #include<sys/types.h>
 #include <cstdlib>
 #include "mixmax2.hh"
@@ -231,6 +233,13 @@ void PrimariesGenerator::GenerateParticle(G4Event *anEvent) {
     fParticleGun->SetParticleMomentumDirection(direction);
     fParticleGun->SetParticleEnergy(particle_energy * GeV);
     fParticleGun->SetParticlePosition(position);
+    {   // HIT TIME: a particle created away from the origin (singlepart_face) starts at its time of flight from the
+        // origin, so that every simulation's Geant4 global time counts from the collision (0 for the origin).
+        G4double mass = partDefinition->GetPDGMass();
+        G4double etot = particle_energy * GeV + mass;
+        G4double beta = std::sqrt(std::max(0.0, 1.0 - (mass / etot) * (mass / etot)));
+        fParticleGun->SetParticleTime(beta > 0 ? position.mag() / (beta * CLHEP::c_light) : 0.0);
+    }
     fParticleGun->GeneratePrimaryVertex(anEvent);
 }
 void PrimariesGenerator::GenerateWithPythia(G4Event *anEvent) {

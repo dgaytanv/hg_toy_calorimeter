@@ -7,6 +7,9 @@
 #include "B4DetectorConstruction.hh"
 #include "B4aActionInitialization.hh"
 #include <string>
+#include <cmath>
+#include <functional>
+#include <unordered_map>
 
 #include "defines.h"
 
@@ -305,6 +308,52 @@ py::dict collect() {
                           "particles_total_energy_deposited_all"_a = particles_total_energy_deposited_all,
                           "particles_parent_idx"_a = particles_parent_id
     );
+
+    {   // HIT TIME: the deposits summed per (particle, sensor, 1 ps time slice), the time slice of CMSSW's HGCSD
+        // (TimeSliceUnit 0.001 ns). Keys: step_particle_id (the index of hit_particle_id; -1 = a deposit attributed
+        // to no particle), step_sensor_idx, step_deposit (GeV, float32), step_time (ns, float32: exact to < 4 ps
+        // below 34 ns). Everything later than 1 microsecond goes into the 1 microsecond slice.
+        struct Key {
+            int particle, sensor; long long slice;
+            bool operator==(const Key &o) const { return particle == o.particle && sensor == o.sensor && slice == o.slice; }
+        };
+        struct KeyHash {
+            size_t operator()(const Key &k) const {
+                size_t h = std::hash<long long>()(((long long) k.particle << 32) ^ (long long) (unsigned int) k.sensor);
+                return h ^ (std::hash<long long>()(k.slice) + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2));
+            }
+        };
+        std::unordered_map<Key, size_t, KeyHash> slot;
+        std::vector<int> s_part, s_idx;
+        std::vector<double> s_dep_sum;
+        std::vector<float> s_time;
+        const auto &sp = eventAction->steps_particle_idx;
+        const auto &ss = eventAction->steps_sensor_idx;
+        const auto &sd = eventAction->steps_deposit;
+        const auto &st = eventAction->steps_time;
+        for (size_t i = 0; i < ss.size(); i++) {
+            long long slice = (long long) std::floor(st[i] * 1000.0);   // ps
+            if (slice < 0) slice = 0;
+            if (slice > 1000000LL) slice = 1000000LL;
+            Key key{sp[i], ss[i], slice};
+            auto found = slot.find(key);
+            if (found == slot.end()) {
+                slot[key] = s_idx.size();
+                s_part.push_back(sp[i]);
+                s_idx.push_back(ss[i]);
+                s_dep_sum.push_back(sd[i]);
+                s_time.push_back((float) (slice * 0.001));
+            } else {
+                s_dep_sum[found->second] += sd[i];
+            }
+        }
+        std::vector<float> s_dep(s_dep_sum.begin(), s_dep_sum.end());
+        d["step_particle_id"] = (py::array) py::cast(s_part);
+        d["step_sensor_idx"] = (py::array) py::cast(s_idx);
+        d["step_deposit"] = (py::array) py::cast(s_dep);
+        d["step_time"] = (py::array) py::cast(s_time);
+        d["step_count_raw"] = (long long) ss.size();
+    }
 
     if (collect_full_data) {
         for (auto& it: eventAction->result_arrays_int) {
