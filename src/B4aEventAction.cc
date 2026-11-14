@@ -40,6 +40,7 @@
 #include <iomanip>
 #include "G4INCLRandom.hh"
 #include "B4PrimaryGeneratorAction.hh"
+#include "G4SystemOfUnits.hh"
 
 //....oooOO0OOooo........oooOO0OOooo........oooOO0OOooo........oooOO0OOooo......
 
@@ -268,6 +269,12 @@ void B4aEventAction::accumulateStepData(G4VPhysicalVolume *volume, const G4Step 
     if (idx != -1) {
         rechit_energy_.at(idx) += energy;
         rechit_stupid_pid.at(idx) = particle_index;
+        if (energy > 0) {   // HIT TIME: as CMSSW's CaloSD, the track's global time at the step
+            steps_particle_idx.push_back(particle_index);
+            steps_sensor_idx.push_back(idx);
+            steps_deposit.push_back(energy);
+            steps_time.push_back(track->GetGlobalTime() / CLHEP::ns);
+        }
     }
 
     if (this->collect_full_data) {
@@ -350,6 +357,10 @@ void B4aEventAction::BeginOfEventAction(const G4Event * /*event*/) {
     hits_particles_id.clear();
     hits_particles_deposits.clear();
     hits_particles_sensor_idx.clear();
+    steps_particle_idx.clear();
+    steps_sensor_idx.clear();
+    steps_deposit.clear();
+    steps_time.clear();
 
 
     if (this->collect_full_data) {

@@ -204,6 +204,14 @@ private:
     std::vector<int> hits_particles_id;
     std::vector<double> hits_particles_deposits;
 public:
+    // HIT TIME: every energy deposit in a sensor, with the Geant4 global time of the step (ns) and the index of
+    // the particle it is attributed to (the index of hit_particle_id; -1 none)
+    std::vector<int> steps_particle_idx;
+    std::vector<int> steps_sensor_idx;
+    std::vector<double> steps_deposit;
+    std::vector<double> steps_time;
+private:
+public:
     const std::vector<int> &getHitsParticlesSensorIdx() const;
 
 private:

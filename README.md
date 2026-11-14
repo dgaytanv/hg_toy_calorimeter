@@ -99,4 +99,72 @@ python3 create_dataset.py example_datasets_config.ini test_dataset_cern
 Here, first the HGCAL environment must have been sourced, to be able to
 export data in `.djctd` format.
 
+## Hit time (this fork, branch `hit-time`)
+
+This branch gives every rec-hit a time, built the way CMSSW builds the HGCAL rec-hit time. Upstream code changes only
+in the generator (four files); the event builder runs upstream's `create_dataset.py` through runtime patches.
+
+### Generator (`src/`, `include/`)
+Every energy deposit in a sensor keeps the Geant4 global time of its step. Each simulation gets five more keys, with the
+deposits summed per (particle, sensor, 1 ps time slice), as CMSSW's HGCAL sensitive detector does:
+- `step_particle_id`: index of the simulation's particle (-1: no particle);
+- `step_sensor_idx`;
+- `step_deposit`: GeV, float32;
+- `step_time`: ns since the collision, float32;
+- `step_count_raw`: the number of Geant4 steps before the summing.
+
+A particle started away from the origin (the `singlepart_face` gun) starts at its time of flight from the origin, so
+the times of every simulation count from the collision. Rebuild after checking out this branch (see "Install /
+Compile"); `run_simulations.py` is unchanged.
+
+### Events (`hit_time/`)
+`build_events_time.py <ini> <section>` runs `python/bin/create_dataset.py` unchanged, through runtime patches. It
+writes the events in `ra_pickles` format instead of `.djctd` (through `build_events.py`), so it needs neither
+DeepJetCore nor HGCalML. Each event is the EventGenerator's result dict, with the particle table attached as
+`result['particles']`. Run it from `python/bin`, with the environment of "Setting environment". Every event also gets:
+- `rechit_time`: ns; -99 where the hit has no valid time, as in the CMS files;
+- `rechit_time_charge`: the cell's in-time charge, fC;
+- with out-of-time pileup, `rechit_oot_energy`: the part of the hit energy from other bunch crossings.
+
+The recipe is in `hit_time.py`. It follows CMSSW's HGCDigitizer, HGCFEElectronics and HGCalUncalibRecHitRecWeightsAlgo,
+with the constants of the 300 um silicon sensors:
+1. charge = deposit converted from keV to fC;
+2. every collision has its own time and beam-line position: Gaussian, sigma 0.102 ns and 2.56 cm;
+3. only deposits inside the in-time 25 ns bunch window count (after a 9 ns time-of-flight shift);
+4. the time of arrival is when the time-ordered cumulative charge of the cell crosses the threshold, interpolated
+   between the two deposits around it;
+5. smearing: a Gaussian jitter of 5 ns x noise / charge, plus one common Gaussian offset per event (sigma 0.02 ns);
+6. stored in steps of 0.0244 ns.
+
+The default threshold is 40 fC instead of CMSSW's 12 fC: the toy's cells are larger, and 40 fC gives HGCAL's fraction
+of hits with a time.
+
+Out-of-time pileup: with `time_oot_bunches=cms` (bunch crossings -3 to +3) or a list such as `-2,-1,1`, the
+minimum-bias simulations beyond the in-time pileup are spread over those bunch crossings. Set
+`num_pu` = in-time pileup x (1 + number of out-of-time crossings). These collisions have no truth. Their deposits move
+by 25 ns per crossing. They add energy to the in-time hits with the HGCROC pulse-shape weights, and enter the time of
+arrival when they fall in the in-time window.
+
+Settings are ini keys of the section: `time_threshold_fc`, `time_collision_sigma_ns`, `time_collision_sigma_z_cm`,
+`time_noise_gev` (the cell noise for the jitter; default `noise_sigma`), `time_jitter`, `time_oot_bunches`. See
+`hit_time/example_time_build.ini`.
+
+### Checks (`hit_time/`)
+- `test_hit_time.py`: known-answer tests of the recipe (numpy only).
+- `verify_time_sims.py <simulation folder> <simtype>`: the step deposits sum to `hit_particle_deposit` and
+  `rechit_energy`, and no time comes before the calorimeter front.
+- `verify_time_events.py <event folder> <calibration .bin> <threshold fC>`: per event, the time columns against the
+  energies and the threshold.
+- `threshold_scan.py <event folder>`: the fraction of particle hits with a time at other thresholds, from the stored
+  charges, and the threshold that gives HGCAL's 25.2 %.
+
+### Measured
+PU-free events with 60 particles each, in the paper's geometry, at 40 fC:
+- 22.7 % of all hits have a time, holding 83 % of the energy (two sets of 5,000 events);
+- 25.4 % of the particle hits have a time (1,000 events). HGCAL: 25.2 % of the particle hits of 500 CMS tau events.
+  The toy would match at 40.4 fC.
+
+The fraction depends on the cell sizes. With another geometry, run `threshold_scan.py` and set `time_threshold_fc`.
+The pileup options were tested on small samples only.
+
 * Events export in ra_pickles format is coming soon.
